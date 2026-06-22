@@ -1,83 +1,137 @@
 from typing import TypedDict, Literal
+
 from langgraph.graph import StateGraph, END
-import os
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 
-load_dotenv()
+from tools.calculator import calculator_tool
+from tools.weather import weather_tool
+from tools.llm_tool import llm_tool
 
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    api_key=os.getenv("OPENAI_API_KEY")
-)
+import re
 
-# State
+
 class State(TypedDict):
     question: str
     route: str
     answer: str
 
 
-# Router node
+# Router
 def router(state: State):
-    q = state["question"].lower()
 
-    if "terraform" in q or "devops" in q or "docker" in q:
-        return {"route": "devops"}
-    else:
-        return {"route": "general"}
+    question = state["question"].lower()
+
+    # Calculator Route
+    if re.search(
+        r"\d+\s*[\+\-\*/]\s*\d+",
+        question
+    ):
+        return {
+            "route": "calculator"
+        }
+
+    # Weather Route
+    if "weather" in question:
+        return {
+            "route": "weather"
+        }
+
+    # Default Route
+    return {
+        "route": "llm"
+    }
 
 
-# Tool A
-def devops_tool(state: State):
-    response = llm.invoke(
-        f"Explain this DevOps topic simply: {state['question']}"
-    )
-    return {"answer": response.content}
-
-
-# Tool B
-def general_tool(state: State):
-    response = llm.invoke(
-        f"Explain simply: {state['question']}"
-    )
-    return {"answer": response.content}
-
-
-# Routing logic
-def route_decision(state: State) -> Literal["devops", "general"]:
+# Conditional Edge
+def route_decision(
+    state: State
+) -> Literal[
+    "calculator",
+    "weather",
+    "llm"
+]:
     return state["route"]
 
 
-# Build graph
+# Graph
 graph = StateGraph(State)
 
-graph.add_node("router", router)
-graph.add_node("devops", devops_tool)
-graph.add_node("general", general_tool)
+graph.add_node(
+    "router",
+    router
+)
 
-graph.set_entry_point("router")
+graph.add_node(
+    "calculator",
+    calculator_tool
+)
+
+graph.add_node(
+    "weather",
+    weather_tool
+)
+
+graph.add_node(
+    "llm",
+    llm_tool
+)
+
+graph.set_entry_point(
+    "router"
+)
 
 graph.add_conditional_edges(
     "router",
     route_decision,
     {
-        "devops": "devops",
-        "general": "general"
+        "calculator": "calculator",
+        "weather": "weather",
+        "llm": "llm"
     }
 )
 
-graph.add_edge("devops", END)
-graph.add_edge("general", END)
+graph.add_edge(
+    "calculator",
+    END
+)
+
+graph.add_edge(
+    "weather",
+    END
+)
+
+graph.add_edge(
+    "llm",
+    END
+)
 
 app = graph.compile()
 
 
-# Run
 if __name__ == "__main__":
-    result = app.invoke({
-        "question": "What is Docker and how does it work?"
-    })
 
-    print("\n=== LANGGRAPH RESPONSE ===\n")
-    print(result["answer"])
+    print(
+        "\nLangGraph Agent Started"
+    )
+
+    while True:
+
+        question = input(
+            "\nYou: "
+        )
+
+        if question.lower() in [
+            "quit",
+            "exit"
+        ]:
+            break
+
+        result = app.invoke(
+            {
+                "question": question
+            }
+        )
+
+        print(
+            "\nAgent:",
+            result["answer"]
+        )
